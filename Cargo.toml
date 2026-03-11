@@ -1,0 +1,67 @@
+[package]
+name = "gstd-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "GSTD Cross-Chain Bridge Validator Node — TON ↔ Solana ↔ XRPL"
+license = "MIT"
+authors = ["GSTD Team"]
+
+[[bin]]
+name = "gstd-bridge"
+path = "src/main.rs"
+
+[dependencies]
+# ── Async Runtime ────────────────────────────────────────────────
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# ── P2P Networking (libp2p) ──────────────────────────────────────
+libp2p = { version = "0.53", features = [
+    "gossipsub", "kad", "identify", "noise", "tcp", "yamux",
+    "tokio", "macros", "dns"
+] }
+
+# ── Serialization ────────────────────────────────────────────────
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# ── Cryptography ─────────────────────────────────────────────────
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["serde", "rand_core"] }
+rand = "0.8"
+hex = "0.4"
+
+# ── HTTP / RPC ───────────────────────────────────────────────────
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+warp = "0.3"
+tungstenite = { version = "0.21", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+
+# ── Blockchain Clients ───────────────────────────────────────────
+solana-client = "1.18"
+solana-sdk = "1.18"
+base64 = "0.22"
+bs58 = "0.5"
+
+# ── Logging / Tracing ───────────────────────────────────────────
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# ── Config / CLI ─────────────────────────────────────────────────
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+dotenv = "0.15"
+
+# ── Utils ────────────────────────────────────────────────────────
+thiserror = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+dashmap = "5"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
