@@ -140,6 +140,8 @@ impl ConsensusEngine {
             return Some(transfer.status.clone());
         }
 
+        let transfer_id = vote.transfer_id.clone();
+        
         // Record the vote
         transfer.votes.insert(vote.voter.clone(), vote);
 
@@ -163,7 +165,7 @@ impl ConsensusEngine {
 
             tracing::info!(
                 "🏆 Transfer APPROVED: {} ({approve_count}/{total_validators} votes)",
-                vote.transfer_id,
+                transfer_id,
             );
             return Some(TransferStatus::Approved);
         }
@@ -172,7 +174,7 @@ impl ConsensusEngine {
             transfer.status = TransferStatus::Rejected;
             tracing::info!(
                 "🚫 Transfer REJECTED: {} ({reject_count}/{total_validators} rejections)",
-                vote.transfer_id,
+                transfer_id,
             );
             return Some(TransferStatus::Rejected);
         }
