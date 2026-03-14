@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! GSTD Cross-Chain Bridge Validator Node
 //!
 //! Architecture:
@@ -45,7 +46,7 @@ use futures::StreamExt;
 use libp2p::swarm::SwarmEvent;
 
 use config::BridgeConfig;
-use chains::{Chain, DepositEvent, ChainMonitor};
+use chains::{DepositEvent, ChainMonitor};
 use chains::ton::TonMonitor;
 use chains::solana::SolanaMonitor;
 use chains::xrpl::XrplMonitor;
@@ -200,7 +201,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Heartbeat: broadcast alive status every 30s
-    let heartbeat_peer = local_peer_id.to_string();
+    let _heartbeat_peer = local_peer_id.to_string();
     // (heartbeat is handled in main loop via P2P broadcast)
 
     // ═══════════════════════════════════════════════════════════
@@ -376,7 +377,7 @@ async fn main() -> anyhow::Result<()> {
                         consensus.write().await.mark_executed(&transfer_id, tx_hash);
                     }
 
-                    BridgeMessage::StateSync { epoch, state_hash, vault_balances } => {
+                    BridgeMessage::StateSync { epoch, state_hash, vault_balances: _ } => {
                         tracing::debug!(
                             "📊 State sync from {sender}: epoch={epoch}, hash={state_hash}"
                         );

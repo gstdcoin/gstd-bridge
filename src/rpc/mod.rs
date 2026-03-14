@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing;
 
 use crate::bridge::vault::VaultManager;
-use crate::consensus::{ConsensusEngine, ConsensusStats, TransferStatus};
+use crate::consensus::{ConsensusEngine, ConsensusStats};
 use crate::config::RpcConfig;
 
 /// Shared state accessible by RPC handlers

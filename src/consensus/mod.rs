@@ -1,7 +1,6 @@
 pub mod state;
 
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
 
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};

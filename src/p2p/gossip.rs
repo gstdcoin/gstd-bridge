@@ -1,4 +1,4 @@
-use libp2p::gossipsub::{self, Event as GossipsubEvent};
+use libp2p::gossipsub::Event as GossipsubEvent;
 use libp2p::PeerId;
 use tracing;
 
