@@ -116,6 +116,17 @@ src/
     └── mod.rs        # HTTP RPC server
 ```
 
+## GSTD Ecosystem
+
+| Component | Repository |
+|-----------|-----------|
+| 🔱 Platform & Backend | [gstdcoin/ai](https://github.com/gstdcoin/ai) |
+| 🐝 Node OS | [gstdcoin/gstdbot](https://github.com/gstdcoin/gstdbot) |
+| 🌍 A2A Protocol | [gstdcoin/A2A](https://github.com/gstdcoin/A2A) |
+| 🌉 **Bridge (this repo)** | [gstdcoin/gstd-bridge](https://github.com/gstdcoin/gstd-bridge) |
+| 🌐 Live Platform | [app.gstdtoken.com](https://app.gstdtoken.com) |
+| 🤖 Telegram Bot | [@GstdAppBot](https://t.me/GstdAppBot) |
+
 ## License
 
 MIT
