@@ -6,7 +6,8 @@ use super::{Chain, ChainMonitor, DepositEvent};
 use crate::config::ChainEndpoint;
 
 /// Solana blockchain monitor
-/// Watches for incoming GSTD SPL token transfers to the vault via RPC + WS
+/// Watches for incoming GSTD SPL token transfers to the vault via RPC
+/// Parses SPL Token balance changes (not SOL lamports) for accurate tracking
 pub struct SolanaMonitor {
     config: ChainEndpoint,
     client: reqwest::Client,
@@ -23,12 +24,99 @@ impl SolanaMonitor {
         }
     }
 
-    /// Parse a Solana transaction for bridge deposit memo
+    /// Parse a Solana transaction signature from the response
     fn parse_signatures_response(
         &self,
         sig_info: &serde_json::Value,
     ) -> Option<String> {
+        // Skip failed transactions
+        if let Some(err) = sig_info.get("err") {
+            if !err.is_null() {
+                return None;
+            }
+        }
         sig_info.get("signature")?.as_str().map(|s| s.to_string())
+    }
+
+    /// Extract sender public key from transaction accountKeys
+    fn extract_sender(tx: &serde_json::Value) -> String {
+        // jsonParsed format: transaction.message.accountKeys[0].pubkey
+        tx.get("transaction")
+            .and_then(|t| t.get("message"))
+            .and_then(|m| m.get("accountKeys"))
+            .and_then(|keys| keys.get(0))
+            .and_then(|key| {
+                // May be either a string or an object with "pubkey"
+                key.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| key.get("pubkey").and_then(|p| p.as_str()).map(|s| s.to_string()))
+            })
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    /// Parse SPL Token transfer amount from pre/postTokenBalances
+    /// This correctly tracks GSTD SPL token transfers (not SOL lamports)
+    fn parse_spl_deposit_amount(
+        &self,
+        meta: &serde_json::Value,
+    ) -> Option<u64> {
+        let post_balances = meta.get("postTokenBalances")?.as_array()?;
+        let pre_balances = meta.get("preTokenBalances")?.as_array()?;
+
+        let gstd_mint = &self.config.token_address;
+
+        // Find GSTD token balance change for the vault
+        for post in post_balances {
+            let mint = post.get("mint")?.as_str()?;
+            if mint != gstd_mint {
+                continue;
+            }
+
+            let owner = post.get("owner").and_then(|o| o.as_str()).unwrap_or("");
+            if owner != self.config.vault_address {
+                continue;
+            }
+
+            let post_amount: u64 = post
+                .get("uiTokenAmount")
+                .and_then(|u| u.get("amount"))
+                .and_then(|a| a.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+
+            // Find matching pre-balance for same account index
+            let account_index = post.get("accountIndex").and_then(|i| i.as_u64());
+            let pre_amount: u64 = pre_balances
+                .iter()
+                .find(|p| p.get("accountIndex").and_then(|i| i.as_u64()) == account_index)
+                .and_then(|p| {
+                    p.get("uiTokenAmount")
+                        .and_then(|u| u.get("amount"))
+                        .and_then(|a| a.as_str())
+                        .and_then(|s| s.parse().ok())
+                })
+                .unwrap_or(0);
+
+            if post_amount > pre_amount {
+                return Some(post_amount - pre_amount);
+            }
+        }
+        None
+    }
+
+    /// Fallback: parse SOL lamport balance changes (for native SOL deposits)
+    fn parse_sol_deposit_amount(meta: &serde_json::Value) -> u64 {
+        let pre = meta
+            .get("preBalances")
+            .and_then(|b| b.get(0))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let post = meta
+            .get("postBalances")
+            .and_then(|b| b.get(0))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        pre.saturating_sub(post)
     }
 }
 
@@ -42,7 +130,11 @@ impl ChainMonitor for SolanaMonitor {
         &self,
         deposit_tx: mpsc::UnboundedSender<DepositEvent>,
     ) -> anyhow::Result<()> {
-        tracing::info!("🟣 Solana Monitor started — vault: {}", self.config.vault_address);
+        tracing::info!(
+            "🟣 Solana Monitor started — vault: {}, token: {}",
+            self.config.vault_address,
+            self.config.token_address
+        );
 
         let mut last_signature: Option<String> = None;
         let interval = std::time::Duration::from_secs(self.config.poll_interval_secs);
@@ -71,7 +163,7 @@ impl ChainMonitor for SolanaMonitor {
                         if let Some(result) = data.get("result").and_then(|r| r.as_array()) {
                             for sig_info in result {
                                 if let Some(sig) = self.parse_signatures_response(sig_info) {
-                                    // Fetch full transaction to parse memo
+                                    // Fetch full transaction to parse deposit
                                     if let Ok(Some(deposit)) =
                                         self.fetch_and_parse_tx(&sig).await
                                     {
@@ -108,6 +200,7 @@ impl ChainMonitor for SolanaMonitor {
         amount: u64,
         _signature_shares: Vec<Vec<u8>>,
     ) -> anyhow::Result<String> {
+        // TODO: Integrate Raydium CPI for GSTD→SOL swap if needed
         tracing::info!(
             "📤 Solana withdrawal: {amount} GSTD → {recipient} (pending MPC signature)"
         );
@@ -115,11 +208,16 @@ impl ChainMonitor for SolanaMonitor {
     }
 
     async fn vault_balance(&self) -> anyhow::Result<u64> {
+        // Query SPL Token account balance (not SOL lamports)
         let body = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
-            "method": "getBalance",
-            "params": [self.config.vault_address]
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                self.config.vault_address,
+                { "mint": self.config.token_address },
+                { "encoding": "jsonParsed" }
+            ]
         });
         let resp = self.client
             .post(&self.config.rpc_url)
@@ -129,17 +227,48 @@ impl ChainMonitor for SolanaMonitor {
             .json::<serde_json::Value>()
             .await?;
 
+        // Parse token account balance
         let balance = resp
             .get("result")
             .and_then(|r| r.get("value"))
-            .and_then(|v| v.as_u64())
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|acc| acc.get("account"))
+            .and_then(|a| a.get("data"))
+            .and_then(|d| d.get("parsed"))
+            .and_then(|p| p.get("info"))
+            .and_then(|i| i.get("tokenAmount"))
+            .and_then(|t| t.get("amount"))
+            .and_then(|a| a.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0);
+
         Ok(balance)
     }
 
     async fn verify_deposit(&self, tx_hash: &str) -> anyhow::Result<bool> {
-        tracing::debug!("Verifying Solana tx: {tx_hash}");
-        Ok(true)
+        // Verify the transaction exists and is confirmed
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTransaction",
+            "params": [tx_hash, { "encoding": "jsonParsed" }]
+        });
+        let resp = self.client
+            .post(&self.config.rpc_url)
+            .json(&body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        let confirmed = resp
+            .get("result")
+            .map(|r| !r.is_null())
+            .unwrap_or(false);
+
+        tracing::debug!("Verified Solana tx {tx_hash}: confirmed={confirmed}");
+        Ok(confirmed)
     }
 }
 
@@ -153,7 +282,7 @@ impl SolanaMonitor {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "getTransaction",
-            "params": [signature, { "encoding": "jsonParsed" }]
+            "params": [signature, { "encoding": "jsonParsed", "maxSupportedTransactionVersion": 0 }]
         });
 
         let resp = self.client
@@ -169,20 +298,38 @@ impl SolanaMonitor {
             _ => return Ok(None),
         };
 
+        let meta = match tx.get("meta") {
+            Some(m) => m,
+            None => return Ok(None),
+        };
+
         // Check for memo instruction containing bridge:<chain>:<recipient>
-        let meta = tx.get("meta");
         let log_messages = meta
-            .and_then(|m| m.get("logMessages"))
+            .get("logMessages")
             .and_then(|l| l.as_array());
 
         if let Some(logs) = log_messages {
             for log in logs {
                 if let Some(msg) = log.as_str() {
-                    if msg.starts_with("Program log: bridge:") {
-                        let parts: Vec<&str> = msg
-                            .trim_start_matches("Program log: bridge:")
-                            .split(':')
-                            .collect();
+                    // Match both "Program log: bridge:" and memo program logs
+                    let bridge_prefix = if msg.starts_with("Program log: bridge:") {
+                        Some("Program log: bridge:")
+                    } else if msg.starts_with("Program log: Memo") && msg.contains("bridge:") {
+                        // Memo program format
+                        msg.find("bridge:").map(|_| "")
+                    } else {
+                        None
+                    };
+
+                    if let Some(prefix) = bridge_prefix {
+                        let memo_content = if prefix.is_empty() {
+                            // Extract from position of "bridge:"
+                            msg.split("bridge:").nth(1).unwrap_or("")
+                        } else {
+                            msg.trim_start_matches(prefix)
+                        };
+
+                        let parts: Vec<&str> = memo_content.split(':').collect();
                         if parts.len() >= 2 {
                             let target_chain = match parts[0].to_lowercase().as_str() {
                                 "ton" => Chain::TON,
@@ -190,18 +337,13 @@ impl SolanaMonitor {
                                 _ => continue,
                             };
 
-                            // Extract amount from balance changes
-                            let pre = meta
-                                .and_then(|m| m.get("preBalances"))
-                                .and_then(|b| b.get(0))
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                            let post = meta
-                                .and_then(|m| m.get("postBalances"))
-                                .and_then(|b| b.get(0))
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                            let amount = pre.saturating_sub(post);
+                            // Extract sender from accountKeys (not "unknown")
+                            let sender = Self::extract_sender(tx);
+
+                            // Parse SPL Token amount (primary) or SOL amount (fallback)
+                            let amount = self
+                                .parse_spl_deposit_amount(meta)
+                                .unwrap_or_else(|| Self::parse_sol_deposit_amount(meta));
 
                             let slot = tx.get("slot").and_then(|s| s.as_u64()).unwrap_or(0);
                             let block_time = tx.get("blockTime").and_then(|b| b.as_u64()).unwrap_or(0);
@@ -210,7 +352,7 @@ impl SolanaMonitor {
                                 tx_hash: signature.to_string(),
                                 source_chain: Chain::Solana,
                                 target_chain,
-                                sender: "unknown".to_string(), // parsed from accountKeys
+                                sender,
                                 recipient: parts[1].to_string(),
                                 amount,
                                 block_number: slot,

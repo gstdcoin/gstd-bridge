@@ -6,7 +6,8 @@ use super::{Chain, ChainMonitor, DepositEvent};
 use crate::config::ChainEndpoint;
 
 /// XRPL blockchain monitor
-/// Watches for GSTD IOU transfers to the vault via XRPL WebSocket/JSON-RPC
+/// Watches for GSTD IOU token transfers to the vault via XRPL JSON-RPC
+/// Correctly distinguishes between XRP drops and IOU Amount objects
 pub struct XrplMonitor {
     config: ChainEndpoint,
     client: reqwest::Client,
@@ -22,6 +23,68 @@ impl XrplMonitor {
                 .expect("http client"),
         }
     }
+
+    /// Parse XRPL Amount field — handles both XRP drops (string) and IOU objects
+    /// XRP:  "Amount": "1000000"               (drops, 1 XRP = 1,000,000 drops)
+    /// IOU:  "Amount": {"currency":"GSD","issuer":"r...","value":"100.5"}
+    fn parse_amount(amount: &serde_json::Value, expected_currency: &str) -> Option<u64> {
+        if let Some(drops_str) = amount.as_str() {
+            // Native XRP payment (drops)
+            let drops: u64 = drops_str.parse().ok()?;
+            return Some(drops);
+        }
+
+        if let Some(obj) = amount.as_object() {
+            let currency = obj.get("currency")?.as_str()?;
+            // Match GSTD IOU by currency code (3-char "GSD" or hex-encoded "GSTD")
+            let is_gstd = currency.eq_ignore_ascii_case(expected_currency)
+                || currency.eq_ignore_ascii_case("GSD")
+                || currency.eq_ignore_ascii_case("GSTD")
+                || Self::is_hex_encoded_gstd(currency);
+
+            if !is_gstd {
+                return None;
+            }
+
+            let value_str = obj.get("value")?.as_str()?;
+            let value: f64 = value_str.parse().ok()?;
+            // Convert to base units (9 decimals like nanoGSTD)
+            return Some((value * 1_000_000_000.0) as u64);
+        }
+
+        None
+    }
+
+    /// Check if currency code is hex-encoded "GSTD" (XRPL uses hex for 4+ char tokens)
+    /// "GSTD" hex = "4753544400000000000000000000000000000000"
+    fn is_hex_encoded_gstd(currency: &str) -> bool {
+        if currency.len() != 40 {
+            return false;
+        }
+        if let Ok(bytes) = hex::decode(currency) {
+            let trimmed: Vec<u8> = bytes.into_iter().take_while(|b| *b != 0).collect();
+            if let Ok(name) = String::from_utf8(trimmed) {
+                return name.eq_ignore_ascii_case("GSTD");
+            }
+        }
+        false
+    }
+
+    /// Validate that the IOU issuer matches our expected token configuration
+    fn validate_issuer(&self, amount: &serde_json::Value) -> bool {
+        if amount.is_string() {
+            // Native XRP — always valid (bridge accepts XRP too)
+            return true;
+        }
+        if let Some(obj) = amount.as_object() {
+            if let Some(issuer) = obj.get("issuer").and_then(|i| i.as_str()) {
+                // Check against configured token_address (GSTD issuer on XRPL)
+                return issuer == self.config.token_address
+                    || self.config.token_address.is_empty(); // Accept any if not configured
+            }
+        }
+        false
+    }
 }
 
 #[async_trait]
@@ -34,7 +97,11 @@ impl ChainMonitor for XrplMonitor {
         &self,
         deposit_tx: mpsc::UnboundedSender<DepositEvent>,
     ) -> anyhow::Result<()> {
-        tracing::info!("🔴 XRPL Monitor started — vault: {}", self.config.vault_address);
+        tracing::info!(
+            "🔴 XRPL Monitor started — vault: {}, token: {}",
+            self.config.vault_address,
+            self.config.token_address
+        );
 
         let mut last_ledger: u64 = 0;
         let interval = std::time::Duration::from_secs(self.config.poll_interval_secs);
@@ -67,6 +134,16 @@ impl ChainMonitor for XrplMonitor {
                                     None => continue,
                                 };
 
+                                // Check transaction was successful
+                                let meta = tx_wrap.get("meta");
+                                let tx_result = meta
+                                    .and_then(|m| m.get("TransactionResult"))
+                                    .and_then(|r| r.as_str())
+                                    .unwrap_or("");
+                                if tx_result != "tesSUCCESS" {
+                                    continue;
+                                }
+
                                 let ledger_index = tx
                                     .get("ledger_index")
                                     .and_then(|l| l.as_u64())
@@ -87,6 +164,23 @@ impl ChainMonitor for XrplMonitor {
                                     continue;
                                 }
 
+                                // Validate amount and issuer
+                                let amount_field = match tx.get("Amount") {
+                                    Some(a) => a,
+                                    None => continue,
+                                };
+
+                                if !self.validate_issuer(amount_field) {
+                                    tracing::debug!("Skipping tx with unknown issuer");
+                                    continue;
+                                }
+
+                                // Use delivered_amount from meta for accurate value
+                                // (handles partial payments correctly)
+                                let effective_amount = meta
+                                    .and_then(|m| m.get("delivered_amount"))
+                                    .unwrap_or(amount_field);
+
                                 // Check for bridge memo
                                 if let Some(memos) = tx.get("Memos").and_then(|m| m.as_array()) {
                                     for memo in memos {
@@ -99,7 +193,10 @@ impl ChainMonitor for XrplMonitor {
                                             if let Ok(decoded) = hex::decode(hex_data) {
                                                 if let Ok(memo_str) = String::from_utf8(decoded) {
                                                     if let Some(deposit) = self.parse_memo(
-                                                        tx, &memo_str, ledger_index,
+                                                        tx,
+                                                        effective_amount,
+                                                        &memo_str,
+                                                        ledger_index,
                                                     ) {
                                                         tracing::info!(
                                                             "🔴 XRPL deposit: {} GSTD from {} → {} on {}",
@@ -143,11 +240,12 @@ impl ChainMonitor for XrplMonitor {
     }
 
     async fn vault_balance(&self) -> anyhow::Result<u64> {
+        // Query GSTD IOU balance via account_lines (trust lines)
         let body = serde_json::json!({
-            "method": "account_info",
+            "method": "account_lines",
             "params": [{
                 "account": self.config.vault_address,
-                "ledger_index": "current"
+                "ledger_index": "validated"
             }]
         });
         let resp = self.client
@@ -158,19 +256,93 @@ impl ChainMonitor for XrplMonitor {
             .json::<serde_json::Value>()
             .await?;
 
-        let balance = resp
+        // Look for GSTD trust line balance
+        let mut gstd_balance: u64 = 0;
+
+        if let Some(lines) = resp
+            .get("result")
+            .and_then(|r| r.get("lines"))
+            .and_then(|l| l.as_array())
+        {
+            for line in lines {
+                let currency = line.get("currency").and_then(|c| c.as_str()).unwrap_or("");
+                if currency.eq_ignore_ascii_case("GSD")
+                    || currency.eq_ignore_ascii_case("GSTD")
+                    || Self::is_hex_encoded_gstd(currency)
+                {
+                    if let Some(balance_str) = line.get("balance").and_then(|b| b.as_str()) {
+                        if let Ok(balance) = balance_str.parse::<f64>() {
+                            gstd_balance = (balance.abs() * 1_000_000_000.0) as u64;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also add native XRP balance
+        let xrp_body = serde_json::json!({
+            "method": "account_info",
+            "params": [{
+                "account": self.config.vault_address,
+                "ledger_index": "validated"
+            }]
+        });
+        let xrp_resp = self.client
+            .post(&self.config.rpc_url)
+            .json(&xrp_body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        let xrp_drops = xrp_resp
             .get("result")
             .and_then(|r| r.get("account_data"))
             .and_then(|a| a.get("Balance"))
             .and_then(|b| b.as_str())
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0);
-        Ok(balance)
+
+        // Return total: GSTD IOU (if any) + XRP drops as reference
+        tracing::debug!(
+            "XRPL vault balance: {} GSTD (nanoGSTD), {} XRP drops",
+            gstd_balance,
+            xrp_drops
+        );
+        Ok(gstd_balance.max(xrp_drops))
     }
 
     async fn verify_deposit(&self, tx_hash: &str) -> anyhow::Result<bool> {
-        tracing::debug!("Verifying XRPL tx: {tx_hash}");
-        Ok(true)
+        let body = serde_json::json!({
+            "method": "tx",
+            "params": [{
+                "transaction": tx_hash,
+                "binary": false
+            }]
+        });
+        let resp = self.client
+            .post(&self.config.rpc_url)
+            .json(&body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        let validated = resp
+            .get("result")
+            .and_then(|r| r.get("validated"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let success = resp
+            .get("result")
+            .and_then(|r| r.get("meta"))
+            .and_then(|m| m.get("TransactionResult"))
+            .and_then(|r| r.as_str())
+            == Some("tesSUCCESS");
+
+        tracing::debug!("Verified XRPL tx {tx_hash}: validated={validated}, success={success}");
+        Ok(validated && success)
     }
 }
 
@@ -179,6 +351,7 @@ impl XrplMonitor {
     fn parse_memo(
         &self,
         tx: &serde_json::Value,
+        effective_amount: &serde_json::Value,
         memo_str: &str,
         ledger_index: u64,
     ) -> Option<DepositEvent> {
@@ -196,20 +369,18 @@ impl XrplMonitor {
         let sender = tx.get("Account")?.as_str()?.to_string();
         let tx_hash = tx.get("hash")?.as_str()?.to_string();
 
-        // Extract amount — either drops (XRP) or IOU amount
-        let amount = tx
-            .get("Amount")
-            .and_then(|a| {
-                if let Some(s) = a.as_str() {
-                    s.parse::<u64>().ok()
-                } else {
-                    a.get("value")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .map(|f| (f * 1_000_000.0) as u64) // Convert to base units
-                }
-            })
+        // Parse amount using IOU-aware parser
+        let currency_hint = &self.config.token_address;
+        let amount = Self::parse_amount(effective_amount, currency_hint)
             .unwrap_or(0);
+
+        if amount == 0 {
+            tracing::warn!(
+                "XRPL bridge memo found but amount is 0, tx={}",
+                tx_hash
+            );
+            return None;
+        }
 
         Some(DepositEvent {
             tx_hash,
