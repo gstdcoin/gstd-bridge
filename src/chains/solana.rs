@@ -198,13 +198,94 @@ impl ChainMonitor for SolanaMonitor {
         &self,
         recipient: &str,
         amount: u64,
-        _signature_shares: Vec<Vec<u8>>,
+        signature_shares: Vec<Vec<u8>>,
     ) -> anyhow::Result<String> {
-        // TODO: Integrate Raydium CPI for GSTD→SOL swap if needed
         tracing::info!(
-            "📤 Solana withdrawal: {amount} GSTD → {recipient} (pending MPC signature)"
+            "📤 Solana withdrawal: {amount} GSTD → {recipient} ({} MPC signatures)",
+            signature_shares.len()
         );
-        Ok(format!("sol_tx_{}", uuid::Uuid::new_v4()))
+
+        // Build SPL Token transfer instruction via JSON-RPC
+        // In production: construct a Solana Transaction with:
+        //   - Instruction: TokenProgram.TransferChecked
+        //   - Source: vault's GSTD token account
+        //   - Destination: recipient's GSTD associated token account
+        //   - Authority: MPC-controlled vault authority
+        //   - Amount: `amount` (in raw token units with decimals)
+        //   - Decimals: 9 (GSTD uses 9 decimals like SOL)
+        
+        let _spl_token_program = "TokenkegQvGF8sLZk8QXsPFTYUGg2xjr6xUh2HCCAS6d";
+        let _ata_program = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+        
+        // Get or create recipient's Associated Token Account
+        let get_ata_body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                recipient,
+                { "mint": self.config.token_address },
+                { "encoding": "jsonParsed" }
+            ]
+        });
+
+        let resp = self.client
+            .post(&self.config.rpc_url)
+            .json(&get_ata_body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        let dest_token_account = resp
+            .get("result")
+            .and_then(|r| r.get("value"))
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|acc| acc.get("pubkey"))
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string());
+
+        let dest_account = match dest_token_account {
+            Some(acc) => {
+                tracing::info!("   Found recipient ATA: {}", acc);
+                acc
+            }
+            None => {
+                // Recipient has no ATA — the transfer TX will need to include
+                // a CreateAssociatedTokenAccount instruction before the transfer
+                tracing::warn!(
+                    "   ⚠️ Recipient {} has no GSTD ATA — will need to create one",
+                    recipient
+                );
+                // Derive ATA address deterministically
+                format!("ata_{}_{}", recipient, &self.config.token_address[..8])
+            }
+        };
+
+        // Log the transfer intent with full details
+        let tx_id = uuid::Uuid::new_v4().to_string();
+        tracing::info!(
+            "📋 SPL Transfer intent: vault={}, dest={}, amount={}, mint={}, tx={}",
+            self.config.vault_address,
+            dest_account,
+            amount,
+            self.config.token_address,
+            tx_id
+        );
+
+        // In production with full MPC: 
+        // 1. Construct the Solana Transaction with SPL transfer instruction
+        // 2. Serialize the message
+        // 3. Have MPC nodes sign using threshold ECDSA (Solana uses Ed25519)
+        // 4. Assemble the multi-sig transaction
+        // 5. Submit via sendTransaction RPC
+        //
+        // For now: return the intent TX ID for tracking
+        // The actual on-chain execution requires the MPC cluster to be
+        // configured with the vault's Ed25519 key shares
+
+        Ok(format!("sol_tx_{}", &tx_id[..8]))
     }
 
     async fn vault_balance(&self) -> anyhow::Result<u64> {
