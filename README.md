@@ -162,6 +162,12 @@ vault_address = "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf"
 quorum_threshold = 0.67
 transfer_timeout_secs = 600
 
+[mpc]
+share_index = 0           # This validator's key share index (0-based)
+threshold = 2             # Minimum signatures required
+total_parties = 3         # Total validator count
+key_share_path = "./data/key_share.bin"  # Persisted Ed25519 key share
+
 [rpc]
 listen_addr = "127.0.0.1:9001"
 ```
