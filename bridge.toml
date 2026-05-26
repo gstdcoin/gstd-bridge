@@ -1,0 +1,47 @@
+[node]
+name = "gstd-bridge-node"
+identity_path = "./data/identity.key"
+data_dir = "./data"
+heartbeat_url = "https://app.gstdtoken.com/api/v1/nodes/heartbeat"
+operator_wallet = ""
+
+[p2p]
+listen_addr = "/ip4/0.0.0.0/tcp/4001"
+bootstrap_peers = []
+topic = "gstd-bridge/v1"
+max_peers = 50
+
+[chains.ton]
+rpc_url = "https://toncenter.com/api/v2"
+vault_address = "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO"
+token_address = "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO"
+poll_interval_secs = 10
+
+[chains.solana]
+rpc_url = "https://api.mainnet-beta.solana.com"
+ws_url = "wss://api.mainnet-beta.solana.com"
+vault_address = "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby"
+token_address = "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby"
+poll_interval_secs = 5
+
+[chains.xrpl]
+rpc_url = "https://s1.ripple.com:51234"
+ws_url = "wss://s1.ripple.com"
+vault_address = "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf"
+token_address = "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf"
+poll_interval_secs = 5
+
+[consensus]
+quorum_threshold = 0.67
+vote_timeout_secs = 30
+min_validators = 3
+
+[rpc]
+listen_addr = "127.0.0.1:9090"
+cors_enabled = true
+
+[mpc]
+share_index = 1
+threshold = 2
+total_parties = 3
+key_share_path = "./data/key_share.bin"

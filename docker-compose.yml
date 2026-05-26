@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  bridge:
+    build: .
+    container_name: gstd-bridge
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "9000:9000"   # libp2p P2P
+      - "9001:9001"   # local RPC HTTP API
+    volumes:
+      - ./data:/app/data           # persists keypair + key_share.bin + logs
+      - ./bridge.toml:/app/bridge.toml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9001/api/bridge/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Optional: expose Prometheus metrics via node-exporter sidecar
+  # Uncomment when you have a Prometheus/Grafana stack
+  # node-exporter:
+  #   image: prom/node-exporter:latest
+  #   ports: ["9100:9100"]
+  #   restart: unless-stopped
