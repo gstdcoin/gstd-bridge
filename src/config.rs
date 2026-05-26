@@ -9,6 +9,8 @@ pub struct BridgeConfig {
     pub chains: ChainsConfig,
     pub consensus: ConsensusConfig,
     pub rpc: RpcConfig,
+    #[serde(default)]
+    pub mpc: MpcConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,10 +72,33 @@ pub struct ConsensusConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcConfig {
-    /// Local RPC listen address 
+    /// Local RPC listen address
     pub listen_addr: String,
     /// Enable CORS for frontend
     pub cors_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MpcConfig {
+    /// This node's share index (1-based, assigned during validator onboarding)
+    pub share_index: usize,
+    /// Minimum shares required to produce a valid threshold signature
+    pub threshold: usize,
+    /// Total number of MPC parties (all active validators)
+    pub total_parties: usize,
+    /// Path where the key share is persisted — NEVER share or commit this file
+    pub key_share_path: PathBuf,
+}
+
+impl Default for MpcConfig {
+    fn default() -> Self {
+        Self {
+            share_index: 1,
+            threshold: 2,
+            total_parties: 3,
+            key_share_path: PathBuf::from("./data/key_share.bin"),
+        }
+    }
 }
 
 impl Default for BridgeConfig {
@@ -83,7 +108,7 @@ impl Default for BridgeConfig {
                 name: "gstd-bridge-node".to_string(),
                 identity_path: PathBuf::from("./data/identity.key"),
                 data_dir: PathBuf::from("./data"),
-                heartbeat_url: "https://api.gstdtoken.com/api/v1/nodes/heartbeat".to_string(),
+                heartbeat_url: "https://app.gstdtoken.com/api/v1/nodes/heartbeat".to_string(),
                 operator_wallet: String::new(),
             },
             p2p: P2PConfig {
@@ -124,6 +149,7 @@ impl Default for BridgeConfig {
                 listen_addr: "127.0.0.1:9090".to_string(),
                 cors_enabled: true,
             },
+            mpc: MpcConfig::default(),
         }
     }
 }

@@ -37,6 +37,7 @@ mod mpc;
 mod bridge;
 mod rpc;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing;
@@ -46,7 +47,7 @@ use futures::StreamExt;
 use libp2p::swarm::SwarmEvent;
 
 use config::BridgeConfig;
-use chains::{DepositEvent, ChainMonitor};
+use chains::{Chain, DepositEvent, ChainMonitor};
 use chains::ton::TonMonitor;
 use chains::solana::SolanaMonitor;
 use chains::xrpl::XrplMonitor;
@@ -97,6 +98,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Solana vault: {}", config.chains.solana.vault_address);
     tracing::info!("XRPL vault:   {}", config.chains.xrpl.vault_address);
     tracing::info!("Quorum:       {}%", (config.consensus.quorum_threshold * 100.0) as u32);
+    tracing::info!("MPC:          party {}/{}, threshold={}",
+        config.mpc.share_index, config.mpc.total_parties, config.mpc.threshold);
     tracing::info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Ensure data directory exists
@@ -112,12 +115,34 @@ async fn main() -> anyhow::Result<()> {
     // Vault manager
     let vault = Arc::new(RwLock::new(VaultManager::new()));
 
-    // MPC threshold signer (threshold = 67% of validators)
-    let signer = Arc::new(ThresholdSigner::new(
-        2, // threshold (will be dynamic based on validator count)
-        3, // total parties (initial)
-        0, // share index (assigned during DKG)
-    ));
+    // MPC threshold signer — loads or generates a persistent key share on disk.
+    // The key share survives restarts and is required for consistent MPC rounds.
+    let signer = Arc::new(ThresholdSigner::load_or_create(
+        config.mpc.threshold,
+        config.mpc.total_parties,
+        config.mpc.share_index,
+        &config.mpc.key_share_path,
+    )?);
+
+    // ═══════════════════════════════════════════════════════════
+    // Chain Monitors (Arc-wrapped so they can be shared between
+    // background watcher tasks and the withdrawal executor)
+    // ═══════════════════════════════════════════════════════════
+
+    let ton_monitor: Arc<dyn ChainMonitor + Send + Sync> =
+        Arc::new(TonMonitor::new(config.chains.ton.clone()));
+    let sol_monitor: Arc<dyn ChainMonitor + Send + Sync> =
+        Arc::new(SolanaMonitor::new(config.chains.solana.clone()));
+    let xrpl_monitor: Arc<dyn ChainMonitor + Send + Sync> =
+        Arc::new(XrplMonitor::new(config.chains.xrpl.clone()));
+
+    // Map chain → monitor for dispatch in handle_approved_transfer and deposit verification
+    let monitors: Arc<HashMap<Chain, Arc<dyn ChainMonitor + Send + Sync>>> =
+        Arc::new(HashMap::from([
+            (Chain::TON,    Arc::clone(&ton_monitor)),
+            (Chain::Solana, Arc::clone(&sol_monitor)),
+            (Chain::XRPL,   Arc::clone(&xrpl_monitor)),
+        ]));
 
     // ═══════════════════════════════════════════════════════════
     // Channels
@@ -137,33 +162,29 @@ async fn main() -> anyhow::Result<()> {
     let local_peer_id = p2p_node.peer_id;
 
     // ═══════════════════════════════════════════════════════════
-    // Start Chain Monitors (async workers)
+    // Start Chain Monitors (async background workers)
     // ═══════════════════════════════════════════════════════════
 
-    let ton_monitor = TonMonitor::new(config.chains.ton.clone());
-    let sol_monitor = SolanaMonitor::new(config.chains.solana.clone());
-    let xrpl_monitor = XrplMonitor::new(config.chains.xrpl.clone());
-
-    // Spawn TON watcher
-    let ton_tx = deposit_tx.clone();
+    let mon = Arc::clone(&ton_monitor);
+    let tx = deposit_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = ton_monitor.start_monitoring(ton_tx).await {
+        if let Err(e) = mon.start_monitoring(tx).await {
             tracing::error!("TON monitor failed: {e}");
         }
     });
 
-    // Spawn Solana watcher
-    let sol_tx = deposit_tx.clone();
+    let mon = Arc::clone(&sol_monitor);
+    let tx = deposit_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = sol_monitor.start_monitoring(sol_tx).await {
+        if let Err(e) = mon.start_monitoring(tx).await {
             tracing::error!("Solana monitor failed: {e}");
         }
     });
 
-    // Spawn XRPL watcher
-    let xrpl_tx = deposit_tx.clone();
+    let mon = Arc::clone(&xrpl_monitor);
+    let tx = deposit_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = xrpl_monitor.start_monitoring(xrpl_tx).await {
+        if let Err(e) = mon.start_monitoring(tx).await {
             tracing::error!("XRPL monitor failed: {e}");
         }
     });
@@ -199,10 +220,6 @@ async fn main() -> anyhow::Result<()> {
             consensus_cleanup.write().await.cleanup_expired();
         }
     });
-
-    // Heartbeat: broadcast alive status every 30s
-    let _heartbeat_peer = local_peer_id.to_string();
-    // (heartbeat is handled in main loop via P2P broadcast)
 
     // ═══════════════════════════════════════════════════════════
     // MAIN EVENT LOOP
@@ -246,6 +263,7 @@ async fn main() -> anyhow::Result<()> {
             }
 
             // ─── Deposit from chain monitors ─────────────────
+            // We detected a deposit ourselves — no need to verify again.
             Some(deposit) = deposit_rx.recv() => {
                 tracing::info!(
                     "💰 Deposit detected on {}: {} GSTD (tx: {})",
@@ -273,7 +291,7 @@ async fn main() -> anyhow::Result<()> {
                         tracing::error!("Failed to broadcast proposal: {e}");
                     }
 
-                    // Cast our own vote (approve + sign)
+                    // Cast our own vote (we verified this deposit via our own monitor)
                     let tx_bytes = bincode::serialize(&deposit).unwrap_or_default();
                     let signing_result = signer.sign_share(&tx_bytes);
 
@@ -285,14 +303,9 @@ async fn main() -> anyhow::Result<()> {
                         timestamp: chrono::Utc::now().timestamp() as u64,
                     };
 
-                    // Record own vote
                     let new_status = consensus.write().await.record_vote(vote.clone());
+                    let _ = p2p_node.broadcast(&BridgeMessage::CastVote(vote));
 
-                    // Broadcast vote
-                    let vote_msg = BridgeMessage::CastVote(vote);
-                    let _ = p2p_node.broadcast(&vote_msg);
-
-                    // If immediately approved (e.g., single node), execute
                     if new_status == Some(consensus::TransferStatus::Approved) {
                         handle_approved_transfer(
                             &id,
@@ -301,6 +314,7 @@ async fn main() -> anyhow::Result<()> {
                             &signer,
                             &mut p2p_node,
                             &local_peer_id,
+                            &monitors,
                         ).await;
                     }
                 }
@@ -317,39 +331,69 @@ async fn main() -> anyhow::Result<()> {
                             deposit.target_chain,
                         );
 
-                        // Verify the deposit on-chain before voting
-                        // (simplified: we trust the proposer for now)
+                        // Register the transfer for tracking (double-spend check)
                         let transfer_id = {
                             let mut cs = consensus.write().await;
                             cs.propose_transfer(deposit.clone())
                         };
 
                         if let Some(id) = transfer_id {
-                            // Sign and vote
-                            let tx_bytes = bincode::serialize(&deposit).unwrap_or_default();
-                            let signing_result = signer.sign_share(&tx_bytes);
-
-                            let vote = consensus::Vote {
-                                transfer_id: id.clone(),
-                                voter: local_peer_id.to_string(),
-                                approved: true,
-                                signature_share: signing_result.signature_share,
-                                timestamp: chrono::Utc::now().timestamp() as u64,
+                            // Independently verify the deposit exists on-chain before voting.
+                            // This prevents a rogue proposer from fabricating transfers.
+                            let verified = match monitors.get(&deposit.source_chain) {
+                                Some(monitor) => {
+                                    match monitor.verify_deposit(&deposit.tx_hash).await {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Deposit verification error for {}: {e}",
+                                                deposit.tx_hash
+                                            );
+                                            false
+                                        }
+                                    }
+                                }
+                                None => {
+                                    tracing::warn!(
+                                        "No monitor for source chain {}",
+                                        deposit.source_chain
+                                    );
+                                    false
+                                }
                             };
 
-                            let new_status = consensus.write().await.record_vote(vote.clone());
-                            let vote_msg = BridgeMessage::CastVote(vote);
-                            let _ = p2p_node.broadcast(&vote_msg);
+                            if !verified {
+                                tracing::warn!(
+                                    "⚠️ Could not verify deposit {} from {proposer} — abstaining",
+                                    deposit.tx_hash
+                                );
+                                // Do not vote; the transfer stays Pending until it expires
+                            } else {
+                                let tx_bytes = bincode::serialize(&deposit).unwrap_or_default();
+                                let signing_result = signer.sign_share(&tx_bytes);
 
-                            if new_status == Some(consensus::TransferStatus::Approved) {
-                                handle_approved_transfer(
-                                    &id,
-                                    &consensus,
-                                    &vault,
-                                    &signer,
-                                    &mut p2p_node,
-                                    &local_peer_id,
-                                ).await;
+                                let vote = consensus::Vote {
+                                    transfer_id: id.clone(),
+                                    voter: local_peer_id.to_string(),
+                                    approved: true,
+                                    signature_share: signing_result.signature_share,
+                                    timestamp: chrono::Utc::now().timestamp() as u64,
+                                };
+
+                                let new_status = consensus.write().await.record_vote(vote.clone());
+                                let _ = p2p_node.broadcast(&BridgeMessage::CastVote(vote));
+
+                                if new_status == Some(consensus::TransferStatus::Approved) {
+                                    handle_approved_transfer(
+                                        &id,
+                                        &consensus,
+                                        &vault,
+                                        &signer,
+                                        &mut p2p_node,
+                                        &local_peer_id,
+                                        &monitors,
+                                    ).await;
+                                }
                             }
                         }
                     }
@@ -366,6 +410,7 @@ async fn main() -> anyhow::Result<()> {
                                 &signer,
                                 &mut p2p_node,
                                 &local_peer_id,
+                                &monitors,
                             ).await;
                         }
                     }
@@ -381,7 +426,6 @@ async fn main() -> anyhow::Result<()> {
                         tracing::debug!(
                             "📊 State sync from {sender}: epoch={epoch}, hash={state_hash}"
                         );
-                        // Reconcile state (production: verify hash, merge)
                     }
 
                     BridgeMessage::ValidatorHeartbeat { peer_id, version, uptime_secs, .. } => {
@@ -420,7 +464,14 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Handle an approved transfer: aggregate signatures and execute withdrawal
+/// Aggregate MPC signatures and execute the withdrawal on the target chain.
+///
+/// Called when consensus quorum is reached for a transfer.  The function:
+/// 1. Collects signature shares from all votes
+/// 2. Aggregates them via the threshold scheme
+/// 3. Checks vault liquidity
+/// 4. Delegates the actual on-chain transaction to the target chain's monitor
+/// 5. Records the execution and broadcasts it to the network
 async fn handle_approved_transfer(
     transfer_id: &str,
     consensus: &Arc<RwLock<ConsensusEngine>>,
@@ -428,57 +479,110 @@ async fn handle_approved_transfer(
     signer: &Arc<ThresholdSigner>,
     p2p_node: &mut P2PNode,
     local_peer_id: &libp2p::PeerId,
+    monitors: &HashMap<Chain, Arc<dyn ChainMonitor + Send + Sync>>,
 ) {
-    let cs = consensus.read().await;
-    let transfer = match cs.transfers.get(transfer_id) {
-        Some(t) => t.clone(),
-        None => return,
+    let transfer = {
+        let cs = consensus.read().await;
+        match cs.transfers.get(transfer_id) {
+            Some(t) => t.clone(),
+            None => return,
+        }
     };
-    drop(cs);
 
-    // Collect signature shares
+    // Only execute once — guard against races when multiple validators hit quorum
+    if transfer.status == consensus::TransferStatus::Executed {
+        return;
+    }
+
+    // Collect MPC signature shares from all approving votes
     let shares = consensus.read().await.collect_signature_shares(transfer_id);
 
-    // Attempt to aggregate
-    if let Some(_aggregated_sig) = signer.try_aggregate(&shares) {
-        // Check vault liquidity on target chain
-        let can_unlock = vault.write().await.unlock(
-            transfer.deposit.target_chain,
-            transfer.deposit.amount,
-        );
-
-        if !can_unlock {
-            tracing::error!(
-                "❌ Insufficient liquidity on {} for transfer {transfer_id}",
-                transfer.deposit.target_chain
+    let aggregated_sig = match signer.try_aggregate(&shares) {
+        Some(sig) => sig,
+        None => {
+            tracing::warn!(
+                "⚠️ Insufficient signature shares for {transfer_id}: {}/{} (need {})",
+                shares.len(),
+                signer.total_parties,
+                signer.threshold,
             );
             return;
         }
+    };
 
-        // Execute withdrawal on target chain
-        // In production: use the aggregated MPC signature
-        let tx_hash = format!(
-            "{}_bridge_{}",
-            transfer.deposit.target_chain,
-            &transfer_id[..8.min(transfer_id.len())]
+    // Check vault liquidity on target chain
+    let can_unlock = vault
+        .write()
+        .await
+        .unlock(transfer.deposit.target_chain, transfer.deposit.amount);
+
+    if !can_unlock {
+        tracing::error!(
+            "❌ Insufficient liquidity on {} for transfer {transfer_id}",
+            transfer.deposit.target_chain
         );
-
-        tracing::info!(
-            "🎯 Executing withdrawal: {} GSTD on {} → {} (tx: {tx_hash})",
-            transfer.deposit.amount,
-            transfer.deposit.target_chain,
-            transfer.deposit.recipient,
-        );
-
-        // Mark as executed
-        consensus.write().await.mark_executed(transfer_id, tx_hash.clone());
-
-        // Broadcast execution to network
-        let msg = BridgeMessage::TransferExecuted {
-            transfer_id: transfer_id.to_string(),
-            tx_hash,
-            executor: local_peer_id.to_string(),
-        };
-        let _ = p2p_node.broadcast(&msg);
+        return;
     }
+
+    // Dispatch withdrawal to the target chain's monitor
+    let monitor = match monitors.get(&transfer.deposit.target_chain) {
+        Some(m) => Arc::clone(m),
+        None => {
+            tracing::error!(
+                "❌ No chain monitor for target chain {} (transfer {transfer_id})",
+                transfer.deposit.target_chain
+            );
+            // Re-lock: we decremented the vault but can't send the TX
+            vault
+                .write()
+                .await
+                .lock(transfer.deposit.target_chain, transfer.deposit.amount);
+            return;
+        }
+    };
+
+    tracing::info!(
+        "🎯 Executing withdrawal: {} GSTD on {} → {} (transfer: {transfer_id})",
+        transfer.deposit.amount,
+        transfer.deposit.target_chain,
+        transfer.deposit.recipient,
+    );
+
+    let tx_hash = match monitor
+        .execute_withdrawal(
+            &transfer.deposit.recipient,
+            transfer.deposit.amount,
+            vec![aggregated_sig],
+        )
+        .await
+    {
+        Ok(hash) => hash,
+        Err(e) => {
+            tracing::error!(
+                "❌ Withdrawal failed on {}: {e} (transfer {transfer_id})",
+                transfer.deposit.target_chain
+            );
+            // Re-lock: the vault was decremented but the TX never landed
+            vault
+                .write()
+                .await
+                .lock(transfer.deposit.target_chain, transfer.deposit.amount);
+            return;
+        }
+    };
+
+    tracing::info!("✅ Withdrawal sent: tx={tx_hash}");
+
+    // Record and broadcast
+    consensus
+        .write()
+        .await
+        .mark_executed(transfer_id, tx_hash.clone());
+
+    let msg = BridgeMessage::TransferExecuted {
+        transfer_id: transfer_id.to_string(),
+        tx_hash,
+        executor: local_peer_id.to_string(),
+    };
+    let _ = p2p_node.broadcast(&msg);
 }

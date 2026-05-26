@@ -1,5 +1,6 @@
 pub mod keygen;
 
+use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use tracing;
 
@@ -45,15 +46,14 @@ pub struct SigningResult {
 
 impl ThresholdSigner {
     pub fn new(threshold: usize, total_parties: usize, share_index: usize) -> Self {
-        // Generate Ed25519 key share with verification key
         let key_share_data = keygen::generate_key_share_with_vk(share_index);
-        
+
         tracing::info!(
             "🔐 ThresholdSigner initialized: party {}/{}, threshold={}, vk={}",
             share_index, total_parties, threshold,
             hex::encode(&key_share_data.verification_key[..8])
         );
-        
+
         Self {
             threshold,
             total_parties,
@@ -61,6 +61,37 @@ impl ThresholdSigner {
             key_share: key_share_data.share_bytes,
             verification_key: key_share_data.verification_key,
         }
+    }
+
+    /// Load a persisted key share from `path` (or generate and save a new one),
+    /// then construct the signer.  Use this in production so that the key share
+    /// survives node restarts and remains consistent across MPC rounds.
+    pub fn load_or_create(
+        threshold: usize,
+        total_parties: usize,
+        share_index: usize,
+        key_share_path: &std::path::Path,
+    ) -> anyhow::Result<Self> {
+        let share_bytes =
+            keygen::load_or_generate_persistent_share(share_index, key_share_path)?;
+
+        let mut kb = [0u8; 32];
+        kb.copy_from_slice(&share_bytes[..32]);
+        let vk = SigningKey::from_bytes(&kb).verifying_key().to_bytes().to_vec();
+
+        tracing::info!(
+            "🔐 ThresholdSigner ready: party {}/{}, threshold={}, vk={}",
+            share_index, total_parties, threshold,
+            hex::encode(&vk[..8])
+        );
+
+        Ok(Self {
+            threshold,
+            total_parties,
+            share_index,
+            key_share: share_bytes,
+            verification_key: vk,
+        })
     }
 
     /// Generate this node's signature share for a transaction

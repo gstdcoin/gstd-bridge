@@ -152,6 +152,44 @@ pub fn aggregate_shares(
     Some(hasher.finalize().to_vec())
 }
 
+/// Load a persisted key share from `path`, or generate a new one and save it.
+///
+/// Once saved, the same bytes are returned on every subsequent call as long as
+/// the file is present and valid (exactly 32 bytes).  Delete the file to force
+/// re-generation — but note that re-generation invalidates any prior MPC round.
+pub fn load_or_generate_persistent_share(
+    share_index: usize,
+    path: &std::path::Path,
+) -> anyhow::Result<Vec<u8>> {
+    if path.exists() {
+        let bytes = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("Failed to read key share {}: {e}", path.display()))?;
+        if bytes.len() == 32 {
+            tracing::info!("🔑 Loaded key share {} from {}", share_index, path.display());
+            return Ok(bytes);
+        }
+        tracing::warn!("⚠️ Key share file is corrupt ({}B), regenerating: {}",
+            bytes.len(), path.display());
+    }
+
+    let share = generate_key_share(share_index);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, &share)
+        .map_err(|e| anyhow::anyhow!("Failed to save key share {}: {e}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+
+    tracing::info!("🔑 Generated and saved new key share {} → {}", share_index, path.display());
+    Ok(share)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
