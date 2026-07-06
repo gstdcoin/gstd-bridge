@@ -7,13 +7,13 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "9000:9000"   # libp2p P2P
-      - "9001:9001"   # local RPC HTTP API
+      - "4001:4001"   # libp2p P2P (matches Dockerfile EXPOSE + config default)
+      - "9090:9090"   # local RPC HTTP API (matches Dockerfile EXPOSE + config default)
     volumes:
       - ./data:/app/data           # persists keypair + key_share.bin + logs
       - ./bridge.toml:/app/bridge.toml:ro
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9001/api/bridge/status"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9090/api/bridge/status"]
       interval: 30s
       timeout: 5s
       retries: 3
