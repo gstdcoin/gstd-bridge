@@ -124,7 +124,7 @@ impl Default for BridgeConfig {
                     // IMPORTANT: vault_address must be the bridge-controlled custodian wallet (NOT the jetton master).
                     // Deploy a dedicated TON wallet for the bridge and set both addresses correctly in bridge.toml.
                     // token_address = GSTD jetton master: EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO
-                    vault_address: "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO".to_string(), // PLACEHOLDER — replace with bridge custodian wallet
+                    vault_address: String::new(), // must be set to a real bridge custodian wallet -- see IMPORTANT comment above
                     token_address: "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO".to_string(),
                     poll_interval_secs: 10,
                 },
@@ -132,7 +132,7 @@ impl Default for BridgeConfig {
                     rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
                     ws_url: Some("wss://api.mainnet-beta.solana.com".to_string()),
                     // IMPORTANT: vault_address must be a bridge-controlled ATA, not the token mint address.
-                    vault_address: "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby".to_string(), // PLACEHOLDER — replace with bridge ATA
+                    vault_address: String::new(), // must be set to a real bridge-controlled ATA -- see IMPORTANT comment above
                     token_address: "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby".to_string(),
                     poll_interval_secs: 5,
                 },
@@ -140,7 +140,7 @@ impl Default for BridgeConfig {
                     rpc_url: "https://s1.ripple.com:51234".to_string(),
                     ws_url: Some("wss://s1.ripple.com".to_string()),
                     // IMPORTANT: vault_address must be a bridge-controlled issuer account, not the token issuer.
-                    vault_address: "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf".to_string(), // PLACEHOLDER — replace with bridge issuer account
+                    vault_address: String::new(), // must be set to a real bridge-controlled issuer account -- see IMPORTANT comment above
                     token_address: "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf".to_string(),
                     poll_interval_secs: 5,
                 },
