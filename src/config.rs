@@ -121,21 +121,26 @@ impl Default for BridgeConfig {
                 ton: ChainEndpoint {
                     rpc_url: "https://toncenter.com/api/v2".to_string(),
                     ws_url: None,
-                    vault_address: "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO".to_string(),
+                    // IMPORTANT: vault_address must be the bridge-controlled custodian wallet (NOT the jetton master).
+                    // Deploy a dedicated TON wallet for the bridge and set both addresses correctly in bridge.toml.
+                    // token_address = GSTD jetton master: EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO
+                    vault_address: "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO".to_string(), // PLACEHOLDER — replace with bridge custodian wallet
                     token_address: "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO".to_string(),
                     poll_interval_secs: 10,
                 },
                 solana: ChainEndpoint {
                     rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
                     ws_url: Some("wss://api.mainnet-beta.solana.com".to_string()),
-                    vault_address: "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby".to_string(),
+                    // IMPORTANT: vault_address must be a bridge-controlled ATA, not the token mint address.
+                    vault_address: "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby".to_string(), // PLACEHOLDER — replace with bridge ATA
                     token_address: "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby".to_string(),
                     poll_interval_secs: 5,
                 },
                 xrpl: ChainEndpoint {
                     rpc_url: "https://s1.ripple.com:51234".to_string(),
                     ws_url: Some("wss://s1.ripple.com".to_string()),
-                    vault_address: "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf".to_string(),
+                    // IMPORTANT: vault_address must be a bridge-controlled issuer account, not the token issuer.
+                    vault_address: "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf".to_string(), // PLACEHOLDER — replace with bridge issuer account
                     token_address: "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf".to_string(),
                     poll_interval_secs: 5,
                 },
@@ -155,16 +160,53 @@ impl Default for BridgeConfig {
 }
 
 impl BridgeConfig {
-    /// Load from TOML file, falling back to defaults
+    /// Load from TOML file. Requires the file to exist and every chain's
+    /// vault_address to be a real, distinct custodian wallet -- never falls
+    /// back to a default config, since the only defaults available for
+    /// vault_address are either empty or equal to token_address, both of
+    /// which would misroute funds to the token mint/issuer instead of a
+    /// bridge-controlled wallet.
     pub fn load(path: &str) -> anyhow::Result<Self> {
-        if std::path::Path::new(path).exists() {
-            let content = std::fs::read_to_string(path)?;
-            let config: BridgeConfig = toml::from_str(&content)?;
-            Ok(config)
-        } else {
-            tracing::warn!("Config file not found at {path}, using defaults");
-            Ok(Self::default())
+        if !std::path::Path::new(path).exists() {
+            anyhow::bail!(
+                "Config file not found at {path}. Copy the bridge.toml template from this repo \
+                 and set vault_address for each chain to a real bridge-controlled custodian \
+                 wallet before starting the bridge."
+            );
         }
+        let content = std::fs::read_to_string(path)?;
+        let config: BridgeConfig = toml::from_str(&content)?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Reject a config whose vault_address is missing or equal to the
+    /// token's own mint/issuer address on any chain -- either would route
+    /// bridged funds to the token contract itself instead of a real
+    /// bridge-controlled custodian wallet.
+    fn validate(&self) -> anyhow::Result<()> {
+        for (chain_name, endpoint) in [
+            ("ton", &self.chains.ton),
+            ("solana", &self.chains.solana),
+            ("xrpl", &self.chains.xrpl),
+        ] {
+            if endpoint.vault_address.is_empty() {
+                anyhow::bail!(
+                    "chains.{chain_name}.vault_address is not set. It must be a real \
+                     bridge-controlled custodian wallet, distinct from token_address."
+                );
+            }
+            if endpoint.vault_address == endpoint.token_address {
+                anyhow::bail!(
+                    "chains.{chain_name}.vault_address is set to the same address as \
+                     token_address ({}) -- this would route bridged funds to the token's own \
+                     mint/issuer instead of a bridge-controlled custodian wallet. Set \
+                     vault_address to a real, distinct custodian wallet.",
+                    endpoint.token_address
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Save current config to TOML
