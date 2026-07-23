@@ -55,4 +55,5 @@ jobs:
       - name: Build image
         run: docker build -t gstd-bridge:ci .
       - name: Image size
-        run: docker images gstd-bridge:ci --format "Size: {{.Size}}"
+        run: |
+          docker images gstd-bridge:ci --format "Size: {{.Size}}"

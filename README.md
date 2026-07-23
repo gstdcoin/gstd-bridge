@@ -3,6 +3,29 @@
 > Trustless GSTD token transfers between TON, Solana, and XRPL.  
 > Written in Rust. Runs as a lightweight validator node alongside GSTD Node OS.
 
+> **⚠ Status: deferred, not deployed.** No validator has ever run this in
+> production — no MPC key shares exist, no Solana/XRPL vault wallets have
+> been created, and CI has been red since 2026-05-26. Everything below
+> describes the intended design, not a working system. The platform's
+> `/bridge` page currently redirects elsewhere rather than exposing this.
+> See `CLAUDE.md` for what's actually implemented vs. aspirational.
+>
+> **This is not just "not deployed yet" — three specific claims below do
+> not hold in the current code and would need a real redesign, not a
+> config change, before this could ever go live:**
+> - **Consensus votes are unauthenticated.** `record_vote()` accepts any
+>   `voter` string with no check it belongs to a connected validator, and
+>   never verifies a signature. A single attacker can currently forge quorum.
+> - **The "MPC threshold signature" isn't a threshold scheme.** Each
+>   validator's "share" is an independently generated random key, not a
+>   point on a shared secret polynomial — there is no secret to reconstruct.
+>   "Aggregation" hashes shares together; the result is not a valid
+>   signature on any of the three target chains.
+> - **`execute_withdrawal()` is a no-op on all three chains.** It logs and
+>   returns a fabricated transaction hash without ever submitting anything
+>   on-chain, and the caller treats that hash as proof of a successful
+>   transfer.
+
 ---
 
 ## What It Does
@@ -65,11 +88,17 @@ Private keys are never held by a single party. The signing key is split across v
 
 ## Vault Addresses
 
+**None of these exist yet.** The TON address below is the GSTD jetton
+*master contract*, not a custodial vault — do not send funds expecting
+a bridge to process them. Solana and XRPL vault wallets haven't been
+created at all. Real vault addresses will be published here once a
+validator set is actually running.
+
 | Chain | Vault | Explorer |
 |---|---|---|
-| **TON** | `EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO` | [tonscan.org](https://tonscan.org) |
-| **Solana** | `AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby` | [solscan.io](https://solscan.io) |
-| **XRPL** | `ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf` | [xrpscan.com](https://xrpscan.com) |
+| **TON** | not yet deployed (jetton master `EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO` is not a vault) | [tonscan.org](https://tonscan.org) |
+| **Solana** | not yet deployed | [solscan.io](https://solscan.io) |
+| **XRPL** | not yet deployed | [xrpscan.com](https://xrpscan.com) |
 
 ---
 

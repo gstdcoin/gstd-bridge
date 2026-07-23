@@ -3,8 +3,15 @@
 ## Stack
 - **Language**: Rust (stable)
 - **P2P**: libp2p (Kademlia DHT + Gossipsub)
-- **Crypto**: Ed25519 threshold signatures (Shamir t-of-n)
-- **Chains**: TON (toncenter API), Solana (JSON-RPC), XRPL (WebSocket)
+- **Crypto**: intended to be Ed25519 threshold signatures (Shamir t-of-n) — **not implemented as such today**.
+  `mpc/keygen.rs` generates each validator's "share" as an independent random key with no shared
+  secret polynomial, and `mpc/mod.rs`'s aggregation hashes shares together in f64 float math rather
+  than doing real Lagrange interpolation. The output is not a valid signature on any target chain.
+  A correct verified path exists (`ThresholdSigner::verify_share`/`try_aggregate_verified`) but is
+  never called from anywhere. Do not treat this as real threshold cryptography until it's rebuilt.
+- **Chains**: TON (toncenter API), Solana (JSON-RPC), XRPL (WebSocket) — watch/detect logic only;
+  `execute_withdrawal()` on all three is a no-op stub that fabricates a tx hash and never submits
+  anything on-chain.
 - **Config**: TOML (`bridge.toml`)
 - **Logging**: `tracing` + `tracing-subscriber`
 
