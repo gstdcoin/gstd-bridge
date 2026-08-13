@@ -218,12 +218,16 @@ impl ChainMonitor for TonMonitor {
         amount: u64,
         _signature_shares: Vec<Vec<u8>>,
     ) -> anyhow::Result<String> {
-        // In production: construct JettonTransfer with MPC-aggregated signature
-        // and send via Ston.fi router if swap needed
-        tracing::info!(
-            "📤 TON withdrawal: {amount} GSTD → {recipient} (pending MPC signature)"
+        // Not implemented: this would need to construct a JettonTransfer
+        // signed by the vault's actual key and submit it via toncenter, then
+        // return the real resulting tx hash. There is no real threshold
+        // signing behind `_signature_shares` yet (see mpc/mod.rs), so there
+        // is nothing safe to submit on-chain. Fail loudly instead of
+        // fabricating a tx hash that would look like a successful transfer.
+        tracing::error!(
+            "❌ TON withdrawal NOT executed (not implemented): {amount} GSTD → {recipient}"
         );
-        Ok(format!("ton_tx_{}", uuid::Uuid::new_v4()))
+        anyhow::bail!("TON execute_withdrawal is not implemented — no on-chain transaction was sent")
     }
 
     async fn vault_balance(&self) -> anyhow::Result<u64> {

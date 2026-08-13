@@ -28,13 +28,13 @@
 
 ---
 
-## What It Does
+## What It's Designed To Do
 
-The bridge lets you move GSTD tokens freely between chains — no custodians, no central relayers. A decentralized set of validators watches all three chains simultaneously. When a deposit is detected, validators reach consensus (67% quorum), aggregate their MPC threshold signatures, and release funds on the destination chain.
+*(Not yet true of the running code — see the status banner above.)* The intent is for the bridge to move GSTD tokens between chains with no custodian and no central relayer: a decentralized set of validators watches all three chains simultaneously, and when a deposit is detected, validators vote and, once quorum is reached, release funds on the destination chain.
 
-**Lock on source → Quorum consensus → MPC sign → Unlock on destination**
+**Lock on source → Quorum consensus → signed release → Unlock on destination**
 
-No single party can steal funds. No single party can stop a transfer.
+That last step — a signed release that can't be forged by fewer than a threshold of validators — is exactly what's missing today: votes aren't authenticated, there's no real threshold signature, and no withdrawal actually gets submitted on-chain. Until those three things are rebuilt, a single validator (or attacker impersonating one) can currently sway the vote count, and no release happens regardless.
 
 ---
 
@@ -80,9 +80,16 @@ No single party can steal funds. No single party can stop a transfer.
 - **Timeout:** 10 minutes — expired proposals are discarded
 - **Double-spend protection:** Transfer IDs are globally unique (hash of tx_hash + chain + recipient)
 
-### MPC Threshold Signatures
+### MPC Threshold Signatures — not implemented
 
-Private keys are never held by a single party. The signing key is split across validators using threshold cryptography (t-of-n). Even if `t-1` validators collude, they cannot sign anything.
+This is the intended design, not the current behavior. Each validator today
+generates its own independent Ed25519 keypair — there is no shared secret
+split across validators, no DKG ceremony, and no real threshold scheme.
+Each validator's own signature can be independently verified (that part is
+real Ed25519), but there is no way to combine independent validators'
+signatures into one on-chain-valid signature yet, and `execute_withdrawal()`
+correctly refuses to submit anything until that exists. See `mpc/mod.rs`
+and `CLAUDE.md` for the exact gap.
 
 ---
 
@@ -257,13 +264,25 @@ src/
 
 ## Security Model
 
-| Threat | Mitigation |
+**Design intent** (not yet real — see status banner):
+
+| Threat | Intended mitigation |
 |---|---|
 | Single validator colludes | MPC threshold — needs 67% to sign |
 | Validator goes offline | Transfer requeued after timeout, other validators continue |
 | Double spend | Transfer ID is globally unique, consensus records prevent replay |
-| Vault drain | On-chain contracts enforce lock logic; only valid MPC sig unlocks |
+| Vault drain | Only a valid threshold signature unlocks funds |
 | Network partition | Gossipsub retries + Kademlia rerouting; quorum drops gracefully |
+
+**Actual state today:** votes are not cryptographically authenticated (a
+peer claiming to be a known validator's PeerId is currently trusted — see
+`consensus::record_vote`'s doc comment), there is no real threshold
+signature, and `execute_withdrawal()` refuses to run on all three chains
+rather than move funds it can't safely authorize. Net effect: nothing can
+currently be stolen through this bridge because nothing can currently be
+withdrawn through it. Do not read "no MPC" as "no risk" once withdrawal
+execution is implemented — the consensus authentication gap must be closed
+first.
 
 ---
 

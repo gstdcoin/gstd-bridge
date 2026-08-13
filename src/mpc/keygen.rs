@@ -2,15 +2,16 @@ use sha2::{Digest, Sha256};
 use ed25519_dalek::{SigningKey, VerifyingKey, Signer, Signature, Verifier};
 use rand::{rngs::OsRng, RngCore};
 
-/// Shamir Secret Sharing over Ed25519 scalar field
-/// Uses polynomial evaluation to split a signing key into shares
-/// such that any `threshold` subset can reconstruct
+/// Per-validator Ed25519 key generation.
 ///
-/// Security model:
-/// - Each share is a point on a random polynomial of degree (threshold-1)
-/// - The secret is the polynomial's constant term (f(0))
-/// - Shares are (x, f(x)) where x = 1,2,...,n
-/// - Reconstruction uses Lagrange interpolation
+/// NOT Shamir Secret Sharing: each "share" below is an independent Ed25519
+/// keypair derived from `(domain, share_index, local randomness)`, not a
+/// point on a shared polynomial. There is no single underlying secret split
+/// across shares, and no reconstruction/interpolation step — nor should
+/// there be, since no party should ever hold the full secret in a real
+/// threshold scheme. What this module actually gives you is real, verifiable
+/// Ed25519 signing per validator (see `sign_with_share`/`verify_share`); a
+/// genuine threshold scheme (FROST or similar DKG) is not implemented here.
 
 /// A key share for one participant — contains the share value and the
 /// corresponding public verification key
@@ -107,51 +108,6 @@ pub fn verify_share(signature_bytes: &[u8], message: &[u8], verification_key: &[
     vk.verify(message, &signature).is_ok()
 }
 
-/// Compute Lagrange basis coefficient for a given node at x=0
-/// Used for threshold signature aggregation
-/// lambda_i(0) = product of (x_j / (x_j - x_i)) for all j != i
-fn lagrange_coefficient(index: usize, indices: &[usize]) -> f64 {
-    let x_i = index as f64;
-    let mut result = 1.0;
-    for &j in indices {
-        if j != index {
-            let x_j = j as f64;
-            result *= x_j / (x_j - x_i);
-        }
-    }
-    result
-}
-
-/// Aggregate signature shares using weighted combination
-/// This produces a deterministic 32-byte aggregate that can be
-/// verified against the aggregate public key
-pub fn aggregate_shares(
-    shares: &[(usize, Vec<u8>)], // (index, signature_bytes)
-    threshold: usize,
-) -> Option<Vec<u8>> {
-    if shares.len() < threshold {
-        return None;
-    }
-    
-    let indices: Vec<usize> = shares.iter().map(|(i, _)| *i).collect();
-    
-    // Compute weighted hash of all threshold shares
-    // In production with proper TSS: use Lagrange interpolation on signature scalars
-    // Here: compute HMAC-like aggregate for deterministic verification
-    let mut hasher = Sha256::new();
-    hasher.update(b"gstd-bridge-aggregate-v2");
-    hasher.update((threshold as u64).to_le_bytes());
-    
-    for (index, sig_bytes) in shares.iter().take(threshold) {
-        let coeff = lagrange_coefficient(*index, &indices);
-        hasher.update(index.to_le_bytes());
-        hasher.update(coeff.to_le_bytes());
-        hasher.update(sig_bytes);
-    }
-    
-    Some(hasher.finalize().to_vec())
-}
-
 /// Load a persisted key share from `path`, or generate a new one and save it.
 ///
 /// Once saved, the same bytes are returned on every subsequent call as long as
@@ -222,20 +178,5 @@ mod tests {
         let (sig, vk) = sign_with_share(&key_share.share_bytes, message);
         // Verify with wrong message should fail
         assert!(!verify_share(&sig, b"wrong message", &vk));
-    }
-    
-    #[test]
-    fn test_aggregate_threshold() {
-        let shares: Vec<(usize, Vec<u8>)> = (1..=5)
-            .map(|i| {
-                let ks = generate_key_share_with_vk(i);
-                let (sig, _) = sign_with_share(&ks.share_bytes, b"bridge tx");
-                (i, sig)
-            })
-            .collect();
-        
-        // 3 of 5 threshold
-        assert!(aggregate_shares(&shares[..3], 3).is_some());
-        assert!(aggregate_shares(&shares[..2], 3).is_none()); // Below threshold
     }
 }

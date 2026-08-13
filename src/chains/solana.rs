@@ -264,28 +264,25 @@ impl ChainMonitor for SolanaMonitor {
         };
 
         // Log the transfer intent with full details
-        let tx_id = uuid::Uuid::new_v4().to_string();
         tracing::info!(
-            "📋 SPL Transfer intent: vault={}, dest={}, amount={}, mint={}, tx={}",
+            "📋 SPL Transfer intent (NOT submitted): vault={}, dest={}, amount={}, mint={}",
             self.config.vault_address,
             dest_account,
             amount,
             self.config.token_address,
-            tx_id
         );
 
-        // In production with full MPC: 
-        // 1. Construct the Solana Transaction with SPL transfer instruction
-        // 2. Serialize the message
-        // 3. Have MPC nodes sign using threshold ECDSA (Solana uses Ed25519)
-        // 4. Assemble the multi-sig transaction
-        // 5. Submit via sendTransaction RPC
-        //
-        // For now: return the intent TX ID for tracking
-        // The actual on-chain execution requires the MPC cluster to be
-        // configured with the vault's Ed25519 key shares
-
-        Ok(format!("sol_tx_{}", &tx_id[..8]))
+        // Not implemented beyond this point: constructing and submitting the
+        // actual Solana Transaction (SPL TransferChecked instruction, signed
+        // by the vault's real key, sent via sendTransaction RPC). There is
+        // no real threshold signing behind `signature_shares` yet (see
+        // mpc/mod.rs), so there is nothing safe to submit on-chain. Fail
+        // loudly instead of fabricating a tx hash that would look like a
+        // successful transfer.
+        tracing::error!(
+            "❌ Solana withdrawal NOT executed (not implemented): {amount} GSTD → {recipient}"
+        );
+        anyhow::bail!("Solana execute_withdrawal is not implemented — no on-chain transaction was sent")
     }
 
     async fn vault_balance(&self) -> anyhow::Result<u64> {

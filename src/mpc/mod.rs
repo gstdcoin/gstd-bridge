@@ -4,19 +4,23 @@ use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use tracing;
 
-/// Threshold Signature Scheme (TSS) manager
-/// Manages the MPC protocol for generating shared signatures
-/// without any single node holding the full private key.
+/// Per-validator signer, NOT a real threshold signature scheme.
 ///
-/// Security model:
-/// - N validators each hold a key share (Ed25519 signing key derived from Shamir's share)
-/// - T of N shares are needed to produce a valid aggregated signature (threshold)
-/// - Each share independently produces a verifiable Ed25519 signature
-/// - Aggregation combines T verified signatures into a final approval
+/// What this actually does:
+/// - Each validator holds its own independently-generated Ed25519 keypair
+///   (see `keygen.rs` — there is no shared secret polynomial behind these)
+/// - Each validator can produce a genuine, independently-verifiable Ed25519
+///   signature over a message (`sign_share`/`verify_share`)
+/// - Once `threshold` validators have each signed, `try_collect_quorum`
+///   returns that set of independent signatures — it does NOT combine them
+///   into a single aggregated/threshold signature. Ed25519 signatures from
+///   unrelated keys cannot be linearly combined the way a real threshold
+///   scheme (FROST, GG20) can; pretending otherwise was the previous
+///   (removed) behavior of this module and produced bytes that were not a
+///   valid signature on any target chain.
 ///
-/// Upgrade path: Replace with GG20/FROST protocol for full MPC without
-/// any trusted dealer. Current implementation uses dealer-based Shamir's
-/// secret sharing which is suitable for single-operator deployments.
+/// Upgrade path: replace with a real FROST/GG20 DKG + threshold-signing
+/// protocol before this is used to move real funds.
 pub struct ThresholdSigner {
     /// Threshold (minimum shares to sign)
     pub threshold: usize,
@@ -40,8 +44,6 @@ pub struct SigningResult {
     pub verification_key: Vec<u8>,
     pub share_index: usize,
     pub is_final: bool,
-    /// Aggregated signature (only set when threshold reached)
-    pub aggregated_signature: Option<Vec<u8>>,
 }
 
 impl ThresholdSigner {
@@ -112,7 +114,6 @@ impl ThresholdSigner {
             verification_key: vk,
             share_index: self.share_index,
             is_final: false,
-            aggregated_signature: None,
         }
     }
 
@@ -121,10 +122,17 @@ impl ThresholdSigner {
         keygen::verify_share(&result.signature_share, message, &result.verification_key)
     }
 
-    /// Attempt to aggregate raw signature shares into a final signature
-    /// Backward-compatible API accepting Vec<Vec<u8>> from consensus engine
-    /// Returns Some(signature) if threshold is met
-    pub fn try_aggregate(&self, shares: &[Vec<u8>]) -> Option<Vec<u8>> {
+    /// Once `threshold` signature shares have been collected, return them.
+    ///
+    /// This does NOT aggregate the shares into a single combined signature —
+    /// see the module doc comment for why. It is simply a quorum check that
+    /// hands back the raw shares for the caller to pass on (e.g. to
+    /// `ChainMonitor::execute_withdrawal`, which already accepts a
+    /// `Vec<Vec<u8>>` rather than one signature). Note the shares passed in
+    /// here are not verified against a registered per-validator key at this
+    /// call site — see `ConsensusEngine::record_vote` for what is and isn't
+    /// authenticated before a share reaches this point.
+    pub fn try_collect_quorum(&self, shares: &[Vec<u8>]) -> Option<Vec<Vec<u8>>> {
         if shares.len() < self.threshold {
             tracing::debug!(
                 "🔑 Not enough shares: {}/{} (need {})",
@@ -135,57 +143,13 @@ impl ThresholdSigner {
             return None;
         }
 
-        // Convert raw bytes to indexed shares for Lagrange aggregation
-        let indexed_shares: Vec<(usize, Vec<u8>)> = shares
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (i + 1, s.clone()))
-            .collect();
-
-        let aggregated = keygen::aggregate_shares(&indexed_shares, self.threshold)?;
-
         tracing::info!(
-            "🔓 Threshold signature aggregated: {} shares → {} bytes",
+            "🔓 Quorum reached: {}/{} signature shares collected (not aggregated — see mpc/mod.rs doc comment)",
             shares.len(),
-            aggregated.len()
+            self.total_parties,
         );
 
-        Some(aggregated)
-    }
-
-    /// Aggregate verified SigningResult shares (full MPC version)
-    /// Verifies each Ed25519 signature before aggregation
-    pub fn try_aggregate_verified(&self, shares: &[SigningResult], message: &[u8]) -> Option<Vec<u8>> {
-        if shares.len() < self.threshold {
-            return None;
-        }
-
-        let mut verified_shares: Vec<(usize, Vec<u8>)> = Vec::new();
-        for share in shares {
-            if !keygen::verify_share(&share.signature_share, message, &share.verification_key) {
-                tracing::warn!("⚠️ Invalid signature from party {} — rejected", share.share_index);
-                continue;
-            }
-            verified_shares.push((share.share_index, share.signature_share.clone()));
-        }
-
-        if verified_shares.len() < self.threshold {
-            tracing::warn!(
-                "⚠️ Only {}/{} shares verified (need {})",
-                verified_shares.len(), shares.len(), self.threshold,
-            );
-            return None;
-        }
-
-        let aggregated = keygen::aggregate_shares(&verified_shares, self.threshold)?;
-
-        tracing::info!(
-            "🔓 Verified threshold signature: {} shares → {} bytes (Ed25519 + Lagrange)",
-            verified_shares.len(),
-            aggregated.len()
-        );
-
-        Some(aggregated)
+        Some(shares.to_vec())
     }
 }
 

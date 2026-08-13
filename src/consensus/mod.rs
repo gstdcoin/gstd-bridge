@@ -132,7 +132,25 @@ impl ConsensusEngine {
 
     /// Record a vote for a transfer
     /// Returns the new status if quorum is reached
+    ///
+    /// SECURITY NOTE: this only checks that `voter` is a peer this node
+    /// currently has a libp2p connection to (`self.validators`). It does
+    /// **not** cryptographically verify that the vote was actually produced
+    /// by that peer: `signature_share` is not checked against a registered
+    /// per-validator verification key, and the gossip layer's authenticated
+    /// message source is not yet threaded through to this call. A peer that
+    /// knows another validator's PeerId string can still forge a vote in
+    /// its name. Do not treat quorum as spoof-proof until that
+    /// verification is wired in — see CLAUDE.md.
     pub fn record_vote(&mut self, vote: Vote) -> Option<TransferStatus> {
+        if !self.validators.contains(&vote.voter) {
+            tracing::warn!(
+                "⛔ Vote rejected: '{}' is not a known validator (transfer {})",
+                vote.voter, vote.transfer_id,
+            );
+            return None;
+        }
+
         let transfer = self.transfers.get_mut(&vote.transfer_id)?;
 
         if transfer.status != TransferStatus::Pending {

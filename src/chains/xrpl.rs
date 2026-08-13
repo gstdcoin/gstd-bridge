@@ -233,10 +233,17 @@ impl ChainMonitor for XrplMonitor {
         amount: u64,
         _signature_shares: Vec<Vec<u8>>,
     ) -> anyhow::Result<String> {
-        tracing::info!(
-            "📤 XRPL withdrawal: {amount} GSTD → {recipient} (pending MPC signature)"
+        // Not implemented: this would need to build a signed XRPL Payment
+        // transaction (IOU trust-line transfer) using the vault's actual
+        // key and submit it, then return the real resulting tx hash. There
+        // is no real threshold signing behind `_signature_shares` yet (see
+        // mpc/mod.rs), so there is nothing safe to submit on-chain. Fail
+        // loudly instead of fabricating a tx hash that would look like a
+        // successful transfer.
+        tracing::error!(
+            "❌ XRPL withdrawal NOT executed (not implemented): {amount} GSTD → {recipient}"
         );
-        Ok(format!("xrpl_tx_{}", uuid::Uuid::new_v4()))
+        anyhow::bail!("XRPL execute_withdrawal is not implemented — no on-chain transaction was sent")
     }
 
     async fn vault_balance(&self) -> anyhow::Result<u64> {

@@ -464,11 +464,12 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Aggregate MPC signatures and execute the withdrawal on the target chain.
+/// Collect MPC signature shares and execute the withdrawal on the target chain.
 ///
 /// Called when consensus quorum is reached for a transfer.  The function:
 /// 1. Collects signature shares from all votes
-/// 2. Aggregates them via the threshold scheme
+/// 2. Checks that a threshold of shares was reached (NOT aggregated into a
+///    single signature — see mpc/mod.rs doc comment for why)
 /// 3. Checks vault liquidity
 /// 4. Delegates the actual on-chain transaction to the target chain's monitor
 /// 5. Records the execution and broadcasts it to the network
@@ -497,8 +498,8 @@ async fn handle_approved_transfer(
     // Collect MPC signature shares from all approving votes
     let shares = consensus.read().await.collect_signature_shares(transfer_id);
 
-    let aggregated_sig = match signer.try_aggregate(&shares) {
-        Some(sig) => sig,
+    let signature_shares = match signer.try_collect_quorum(&shares) {
+        Some(sigs) => sigs,
         None => {
             tracing::warn!(
                 "⚠️ Insufficient signature shares for {transfer_id}: {}/{} (need {})",
@@ -552,7 +553,7 @@ async fn handle_approved_transfer(
         .execute_withdrawal(
             &transfer.deposit.recipient,
             transfer.deposit.amount,
-            vec![aggregated_sig],
+            signature_shares,
         )
         .await
     {
