@@ -111,111 +111,19 @@ validator set is actually running.
 
 ## Bridge Protocol
 
-### How to Bridge
-
-1. Send GSTD to the **source chain vault** with memo:
-   ```
-   bridge:<target_chain>:<recipient_address>
-   ```
-
-2. Example — TON → Solana:
-   ```
-   bridge:solana:AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby
-   ```
-
-3. Wait for 3 confirmations on source chain (~15-30 seconds on TON)
-
-4. Validators detect deposit, reach quorum, release funds on destination
-
-5. Total bridge time: **~2 minutes** (depends on validator count)
-
-### Bridge Fees
-
-- **0.1% flat fee** on bridged amount
-- Fee is split among validators who signed the transaction
-- Minimum fee: 1 GSTD (to cover gas on destination chain)
+The bridge is **not deployed and cannot process transfers**. No production vaults exist. Do not send tokens to any address expecting this software to bridge or return them. Fees, confirmation counts, and transfer times have not been established.
 
 ---
 
-## Running a Bridge Validator
+## Development status
 
-Running a bridge validator earns you a share of bridge fees.
+This repository is a research scaffold, not a validator client ready for public participation. In particular:
 
-### Prerequisites
+- Votes are not authenticated against registered validator keys.
+- The current share aggregation is not a valid threshold-signature scheme.
+- Withdrawal handlers do not submit transactions to the target chains.
 
-- Rust 1.75+
-- 1GB RAM, 10GB disk
-- Stable internet connection (the bridge node must be reachable)
-- Small balance of TON, SOL, and XRP for gas (outgoing transactions)
-
-### Quick Start
-
-```bash
-# Install
-git clone https://github.com/gstdcoin/gstd-bridge
-cd gstd-bridge
-cargo build --release
-
-# Generate config
-./target/release/gstd-bridge --init
-
-# Edit bridge.toml — add your RPC endpoints and wallet keys
-nano bridge.toml
-
-# Start
-./target/release/gstd-bridge
-
-# Or with Docker
-docker build -t gstd-bridge .
-docker run -v $(pwd)/bridge.toml:/app/bridge.toml gstd-bridge
-```
-
-### Config (`bridge.toml`)
-
-```toml
-[node]
-data_dir = "./data"
-keypair_path = "./data/keypair"
-
-[p2p]
-listen_addr = "/ip4/0.0.0.0/tcp/9000"
-bootstrap_peers = []  # Auto-fetched from app.gstdtoken.com/api/v1/nodes/peers
-
-[chains.ton]
-rpc_url = "https://toncenter.com/api/v2"
-vault_address = "EQDv6cYW9nNiKjN3Nwl8D6ABjUiH1gYfWVGZhfP7-9tZskTO"
-api_key = ""  # Optional toncenter API key
-
-[chains.solana]
-rpc_url = "https://api.mainnet-beta.solana.com"
-vault_address = "AzN7uPhQZgThxsRvhNGHPUPRjdEjScTbqQdf5gt6Fqby"
-
-[chains.xrpl]
-rpc_url = "wss://xrplcluster.com"
-vault_address = "ryHSvxUqpcTjoESHbCkMJoqzenjFgPQSf"
-
-[consensus]
-quorum_threshold = 0.67
-transfer_timeout_secs = 600
-
-[mpc]
-share_index = 0           # This validator's key share index (0-based)
-threshold = 2             # Minimum signatures required
-total_parties = 3         # Total validator count
-key_share_path = "./data/key_share.bin"  # Persisted Ed25519 key share
-
-[rpc]
-listen_addr = "127.0.0.1:9001"
-```
-
-### Become a Validator
-
-1. Run the bridge node
-2. Register your node via the [GSTD Platform](https://app.gstdtoken.com)
-3. Stake **10,000+ GSTD** (Provider tier) in the NaaS registry
-4. The DAO votes to add you to the active validator set
-
-With 3+ validators online, the bridge is live.
+Do not use `bridge.toml`'s example chain addresses or configure production keys. A production validator network requires a redesigned and independently reviewed consensus and signing implementation, deployed vaults, and end-to-end testnet verification.
 
 ---
 
