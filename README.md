@@ -207,4 +207,4 @@ first.
 
 ## License
 
-MIT
+PolyForm Noncommercial License 1.0.0 with an added permission for taking part in the GSTD network — see [LICENSE](LICENSE). Not an OSI open-source license. Earlier copies released under MIT remain under MIT.

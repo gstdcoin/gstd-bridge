@@ -3,7 +3,7 @@ name = "gstd-bridge"
 version = "0.1.0"
 edition = "2021"
 description = "GSTD Cross-Chain Bridge Validator Node — TON ↔ Solana ↔ XRPL"
-license = "MIT"
+license-file = "LICENSE"
 authors = ["GSTD Team"]
 
 [[bin]]
