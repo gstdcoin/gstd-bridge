@@ -17,7 +17,7 @@ futures = "0.3"
 async-trait = "0.1"
 
 # ── P2P Networking (libp2p) ──────────────────────────────────────
-libp2p = { version = "0.52", features = [
+libp2p = { version = "0.57", features = [
     "gossipsub", "kad", "identify", "noise", "tcp", "yamux",
     "tokio", "macros", "dns"
 ] }
@@ -36,8 +36,6 @@ hex = "0.4"
 # ── HTTP / RPC ───────────────────────────────────────────────────
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 warp = "0.3"
-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"], default-features = false }
-tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"], default-features = false }
 
 # ── Blockchain Clients (all via HTTP/JSON-RPC) ───────────────────
 # TON: TonCenter HTTP API
