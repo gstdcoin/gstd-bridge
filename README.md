@@ -4,8 +4,9 @@
 > Written in Rust. Runs as a lightweight validator node alongside GSTD Node OS.
 
 > **⚠ Status: deferred, not deployed.** No validator has ever run this in
-> production — no MPC key shares exist, no Solana/XRPL vault wallets have
-> been created, and CI has been red since 2026-05-26. Everything below
+> production — no MPC key shares exist, and no Solana/XRPL vault wallets have
+> been created. The audited commit's GitHub CI runs passed on 2026-10-20;
+> a passing build does not mean the bridge is functional or safe. Everything below
 > describes the intended design, not a working system. The platform's
 > `/bridge` page currently redirects elsewhere rather than exposing this.
 > See `CLAUDE.md` for what's actually implemented vs. aspirational.
