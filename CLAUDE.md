@@ -48,7 +48,7 @@ layer's authenticated message source isn't threaded through to this call yet. A
 peer that knows another validator's PeerId string can still forge a vote in its
 name. See the doc comment on `record_vote` before treating quorum as spoof-proof.
 
-## Running in production
+## Historical deployment scaffold — not a production procedure
 ```bash
 cp .env.example .env          # fill in RPC URLs + vault addresses
 docker-compose up -d
