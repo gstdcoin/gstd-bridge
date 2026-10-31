@@ -2,7 +2,7 @@
 name = "gstd-bridge"
 version = "0.1.0"
 edition = "2021"
-description = "GSTD Cross-Chain Bridge Validator Node — TON ↔ Solana ↔ XRPL"
+description = "GSTD cross-chain research scaffold; deferred and not deployed"
 license-file = "LICENSE"
 authors = ["GSTD Team"]
 

@@ -16,3 +16,9 @@ The node installer no longer installs or launches bridge validators. Existing re
 - [Release readiness](https://github.com/gstdcoin/ai/blob/main/docs/READINESS.md)
 
 For source navigation see [CLAUDE.md](CLAUDE.md). The [historical design](docs/ARCHIVED_DESIGN.md) is archived for research and contains obsolete claims; it is not an operational specification.
+
+## License and status
+
+The first-party scaffold is source-available under [PolyForm Noncommercial with an additional GSTD network permission](LICENSE). Individuals and companies may participate in GSTD and build commercial integrations without a separate license under that permission. Its canonical GSTD settlement condition applies to covered paid network compute, not installation, local research or unrelated application charges; native gas remains separate. Dependencies keep their own licenses and prior releases keep their original rights.
+
+This license permission does not activate a bridge or authorize moving customer funds. The bridge remains deferred and must not receive deposits. See the [current compute platform](https://app.gstdtoken.com) and [SDK license](https://github.com/gstdcoin/A2A/blob/master/LICENSE) for their separate terms.

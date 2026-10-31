@@ -76,27 +76,61 @@ The **licensor** is the individual or entity offering these terms, and the **sof
 
 ---
 
-# Additional Permission: GSTD Network Participation
+# Additional Permission: GSTD Network Participation and Applications
 
-The text above is the unmodified PolyForm Noncommercial License 1.0.0. In addition
-to it, the licensor grants the following permission to everyone:
+The PolyForm Noncommercial License 1.0.0 above remains unmodified. In addition,
+the licensor grants the following permission, to the extent it controls the
+relevant rights, to individuals and legal entities, including companies. These
+additional terms do not limit rights already granted by PolyForm above; its
+permitted noncommercial uses remain available without relying on this permission.
 
-1. **Network participation.** You may run the software (including modified
-   copies) solely to take part in the GSTD network as a node operator, worker,
-   or API client, including receiving GSTD token rewards for accepted work.
-   Receiving such rewards is not, by itself, a commercial use under these terms.
+1. **Commercial participation and applications.** You may use, modify,
+   distribute, embed and host the covered software and extensions to it to
+   participate in the GSTD network as an operator, worker or client, and to
+   build and offer applications and integrations using that network. This
+   includes commercial applications and receiving GSTD for accepted work.
+   Keep the license terms and required notices with distributed covered code.
 
-2. **What stays restricted.** This additional permission does not allow you to
-   sell, sublicense, or host the software or a service derived from it as a
-   commercial product, to embed it in a commercial product or service, or to
-   operate a competing commercial network based on it. Those uses need a
-   separate written license from the licensor.
+2. **Paid network compute uses GSTD.** When relying on this additional
+   permission to provide paid distributed-compute services through the covered
+   core software or a commercial extension to it, settle those compute charges
+   in canonical GSTD. Canonical GSTD on TON mainnet has token-master address
+   `0:efe9c616f673622a337737097c0fa0018d4887d6061f59519985f3fbfbdb59b2`.
+   GSTD-denominated reservations and accounting may represent underlying GSTD;
+   they do not authorize issuing substitute tokens or representing unfunded
+   balances as redeemable GSTD. Test-network fixtures are not real payments.
 
-3. **Third-party components.** Third-party code, models, and assets included in
-   or referenced by this repository remain under their own licenses.
+3. **Narrow payment condition.** The GSTD settlement condition applies only to
+   those paid network-compute charges. Bundling covered paid network compute
+   into another charge does not remove the GSTD settlement condition for the
+   underlying compute. It does not require unrelated business
+   fees, subscriptions, consulting, support or other independent products to
+   be priced or paid in GSTD. This permission imposes no token-payment
+   requirement for installation, local-only execution, free requests or model
+   downloads. Normal blockchain gas and network fees may be paid in TON or
+   the native network asset; they are not GSTD compute charges.
 
-4. **Earlier versions.** Copies of earlier versions that were released under a
-   different license remain available under that license.
+4. **Other commercial core uses.** Commercial sale or licensing of the covered
+   core software for uses outside the participation and application permission
+   above, including a separate commercial network that does not satisfy its
+   GSTD compute-settlement condition, requires a separate written license.
+   This does not restrict rights independently granted by another license.
 
-This project is source-available, not open source as defined by the Open Source
-Initiative.
+5. **Independent implementations and SDKs.** This permission does not impose
+   conditions on independent implementations, unrelated software or the use of
+   public interfaces without incorporating covered code. Separately licensed
+   SDKs and clients remain governed by their own licenses; using an Apache-2.0
+   SDK does not itself impose a GSTD payment obligation.
+
+6. **Third-party rights.** Third-party code, dependencies, models and assets
+   retain their own licenses and notices. This permission neither relicenses
+   them nor grants rights the licensor does not control. Token settlement does
+   not replace model-license or other third-party obligations.
+
+7. **Earlier releases and no service promise.** Earlier copies retain the
+   licenses under which they were released. No retroactive condition is added.
+   This permission grants software rights, not token value, guaranteed work,
+   earnings, service availability or an activated payment mechanism.
+
+The covered core remains source-available, not OSI open source. The additional
+payment condition is not part of the unmodified PolyForm license itself.
