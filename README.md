@@ -1,5 +1,11 @@
 # GSTD bridge research
 
+[![CI](https://github.com/gstdcoin/gstd-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gstdcoin/gstd-bridge/actions/workflows/ci.yml)
+
+[Project map / Карта проекта](https://github.com/gstdcoin/ai/blob/main/docs/INDEX.md) · [Release evidence](https://github.com/gstdcoin/ai/blob/main/docs/READINESS.md) · [Repository maintenance](https://github.com/gstdcoin/ai/blob/main/docs/REPOSITORY_MAINTENANCE.md)
+
+Default branch: `main`.
+
 **Deferred. Not deployed. Not part of the production GSTD compute network.** No production bridge vaults or usable cross-chain transfer service exist. Do not send tokens expecting this code to bridge them.
 
 The current Rust scaffold contains chain monitoring and experimental P2P coordination. It does not implement a chain-valid threshold-signing scheme or submit withdrawals. Withdrawal handlers fail explicitly instead of fabricating successful transaction hashes. Validator votes are not yet cryptographically bound to a registered validator key and authenticated gossip sender.
@@ -22,3 +28,9 @@ For source navigation see [CLAUDE.md](CLAUDE.md). The [historical design](docs/A
 The first-party scaffold is source-available under [PolyForm Noncommercial with an additional GSTD network permission](LICENSE). Individuals and companies may participate in GSTD and build commercial integrations without a separate license under that permission. Its canonical GSTD settlement condition applies to covered paid network compute, not installation, local research or unrelated application charges; native gas remains separate. Dependencies keep their own licenses and prior releases keep their original rights.
 
 This license permission does not activate a bridge or authorize moving customer funds. The bridge remains deferred and must not receive deposits. See the [current compute platform](https://app.gstdtoken.com) and [SDK license](https://github.com/gstdcoin/A2A/blob/master/LICENSE) for their separate terms.
+
+## Research checks
+
+With a Rust toolchain installed, run `cargo test --locked` from this repository. These tests cover implemented research paths only. They do not supply threshold signing, authorize a transfer or establish that withdrawals work. No bridge launch, production funding or validator installation is part of the compute-node setup.
+
+The default branch is the current research scaffold; [repository roles and review policy](https://github.com/gstdcoin/ai/blob/main/docs/REPOSITORY_MAINTENANCE.md) distinguish it from deployed compute and TON escrow components.
