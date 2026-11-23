@@ -2,7 +2,7 @@
 name = "gstd-bridge-node"
 identity_path = "./data/identity.key"
 data_dir = "./data"
-heartbeat_url = "https://app.gstdtoken.com/api/v1/nodes/heartbeat"
+heartbeat_url = "https://app.gstdtoken.xyz/api/v1/nodes/heartbeat"
 operator_wallet = ""
 
 [p2p]

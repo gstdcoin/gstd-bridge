@@ -1,5 +1,7 @@
 # GSTD bridge research
 
+> Domain migration proposal: website `gstdtoken.xyz`, platform `app.gstdtoken.xyz`. DNS/HTTPS and Telegram cutover must be verified before announcing the new host as live. See [migration status](https://github.com/gstdcoin/ai/blob/main/docs/DOMAIN_MIGRATION.md).
+
 [![CI](https://github.com/gstdcoin/gstd-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gstdcoin/gstd-bridge/actions/workflows/ci.yml)
 
 [Project map / Карта проекта](https://github.com/gstdcoin/ai/blob/main/docs/INDEX.md) · [Release evidence](https://github.com/gstdcoin/ai/blob/main/docs/READINESS.md) · [Repository maintenance](https://github.com/gstdcoin/ai/blob/main/docs/REPOSITORY_MAINTENANCE.md)
@@ -16,9 +18,9 @@ The node installer no longer installs or launches bridge validators. Existing re
 
 ## Use GSTD today
 
-- [AI and compute platform](https://app.gstdtoken.com)
+- [AI and compute platform](https://app.gstdtoken.xyz)
 - [Compute node](https://github.com/gstdcoin/gstdbot)
-- [GSTD payments on TON](https://app.gstdtoken.com/payments)
+- [GSTD payments on TON](https://app.gstdtoken.xyz/payments)
 - [Release readiness](https://github.com/gstdcoin/ai/blob/main/docs/READINESS.md)
 
 For source navigation see [CLAUDE.md](CLAUDE.md). The [historical design](docs/ARCHIVED_DESIGN.md) is archived for research and contains obsolete claims; it is not an operational specification.
@@ -27,7 +29,7 @@ For source navigation see [CLAUDE.md](CLAUDE.md). The [historical design](docs/A
 
 The first-party scaffold is source-available under [PolyForm Noncommercial with an additional GSTD network permission](LICENSE). Individuals and companies may participate in GSTD and build commercial integrations without a separate license under that permission. Its canonical GSTD settlement condition applies to covered paid network compute, not installation, local research or unrelated application charges; native gas remains separate. Dependencies keep their own licenses and prior releases keep their original rights.
 
-This license permission does not activate a bridge or authorize moving customer funds. The bridge remains deferred and must not receive deposits. See the [current compute platform](https://app.gstdtoken.com) and [SDK license](https://github.com/gstdcoin/A2A/blob/master/LICENSE) for their separate terms.
+This license permission does not activate a bridge or authorize moving customer funds. The bridge remains deferred and must not receive deposits. See the [current compute platform](https://app.gstdtoken.xyz) and [SDK license](https://github.com/gstdcoin/A2A/blob/master/LICENSE) for their separate terms.
 
 ## Research checks
 
