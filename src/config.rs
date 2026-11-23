@@ -108,7 +108,7 @@ impl Default for BridgeConfig {
                 name: "gstd-bridge-node".to_string(),
                 identity_path: PathBuf::from("./data/identity.key"),
                 data_dir: PathBuf::from("./data"),
-                heartbeat_url: "https://app.gstdtoken.com/api/v1/nodes/heartbeat".to_string(),
+                heartbeat_url: "https://app.gstdtoken.xyz/api/v1/nodes/heartbeat".to_string(),
                 operator_wallet: String::new(),
             },
             p2p: P2PConfig {
